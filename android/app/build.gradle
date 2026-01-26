@@ -1,0 +1,42 @@
+plugins {
+  id "com.android.application"
+  id "kotlin-android"
+  id "dev.flutter.flutter-gradle-plugin"
+}
+
+android {
+  namespace "com.example.vault_app"
+
+  compileSdkVersion flutter.compileSdkVersion
+  ndkVersion flutter.ndkVersion
+
+  defaultConfig {
+    applicationId "com.example.vault_app"
+
+    // IMPORTANT: local_auth et secure_storage demandent souvent minSdk 23+
+    minSdkVersion 23
+
+    targetSdkVersion flutter.targetSdkVersion
+    versionCode flutter.versionCode
+    versionName flutter.versionName
+  }
+
+  buildTypes {
+    release {
+      signingConfig signingConfigs.debug
+    }
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+
+  kotlinOptions {
+    jvmTarget = "17"
+  }
+}
+
+flutter {
+  source "../.."
+}
