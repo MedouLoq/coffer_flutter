@@ -23,9 +23,9 @@ enum VaultItemType {
 
 /// Statut de synchronisation
 enum SyncStatus {
-  synced(0),      // Synchronisé avec le serveur
-  pending(1),     // En attente de sync
-  conflict(2);    // Conflit détecté
+  synced(0), // Synchronisé avec le serveur
+  pending(1), // En attente de sync
+  conflict(2); // Conflit détecté
 
   final int value;
   const SyncStatus(this.value);
@@ -40,27 +40,27 @@ enum SyncStatus {
 
 /// Modèle unifié pour tous les items du vault
 class VaultItem {
-  final int? id;              // ID local (SQLite/IndexedDB)
-  final String? serverId;     // ID sur le serveur (UUID)
-  final String userId;        // ID de l'utilisateur propriétaire
-  final VaultItemType type;   // Type d'item
-  
+  final int? id; // ID local (SQLite/IndexedDB)
+  final String? serverId; // ID sur le serveur (UUID)
+  final String userId; // ID de l'utilisateur propriétaire
+  final VaultItemType type; // Type d'item
+
   // Données chiffrées
   final String encryptedData; // Contenu chiffré (JSON ou bytes en base64)
-  
+
   // Métadonnées (peuvent être chiffrées ou non selon les besoins)
-  final String? filename;     // Pour les fichiers
-  final String? category;     // Pour les fichiers
-  final int? size;            // Taille en bytes
-  final String? title;        // Pour les notes
-  final String? eventDate;    // Pour les événements
-  
+  final String? filename; // Pour les fichiers
+  final String? category; // Pour les fichiers
+  final int? size; // Taille en bytes
+  final String? title; // Pour les notes
+  final String? eventDate; // Pour les événements
+
   // Synchronisation
   final SyncStatus syncStatus;
   final bool deleted;
-  final int version;          // Pour résolution de conflits
+  final int version; // Pour résolution de conflits
   final String? deviceId;
-  
+
   // Timestamps
   final DateTime createdAt;
   final DateTime updatedAt;
@@ -112,26 +112,26 @@ class VaultItem {
   }
 
   /// Convertit en Map pour insertion DB
+  // Inside vault_item_model.dart
   Map<String, dynamic> toDb() {
-    return {
+    final map = {
+      // ONLY include 'id' if it actually exists (for updates)
+      // If it's null, we omit it so SQLite handles AUTOINCREMENT
       if (id != null) 'id': id,
-      if (serverId != null) 'server_id': serverId,
+      'server_id': serverId, // Always include UUID for sync
       'user_id': userId,
       'data': encryptedData,
-      if (filename != null) 'filename': filename,
-      if (category != null) 'category': category,
-      if (size != null) 'size': size,
-      if (title != null) 'title': title,
-      if (eventDate != null) 'event_date': eventDate,
+      'filename': filename,
+      'category': category,
+      'size': size,
       'sync_status': syncStatus.value,
       'deleted': deleted ? 1 : 0,
       'version': version,
-      if (deviceId != null) 'device_id': deviceId,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
+    return map;
   }
-
   // ==========================================
   // CONVERSION API (SERVEUR)
   // ==========================================
@@ -143,7 +143,7 @@ class VaultItem {
       'item_type': type.name,
       'ciphertext_b64': encryptedData,
       'nonce_b64': '', // Géré dans le service crypto
-      'tag_b64': '',   // Géré dans le service crypto
+      'tag_b64': '', // Géré dans le service crypto
       'meta_ciphertext_b64': _encryptedMetadata(),
       'size': size ?? 0,
       'version': version,
@@ -257,7 +257,7 @@ extension VaultItemListExtension on List<VaultItem> {
   List<VaultItem> get active => where((item) => !item.deleted).toList();
 
   /// Filtre les items à synchroniser
-  List<VaultItem> get pendingSync => 
+  List<VaultItem> get pendingSync =>
       where((item) => item.syncStatus == SyncStatus.pending).toList();
 
   /// Trie par date de modification (plus récent en premier)

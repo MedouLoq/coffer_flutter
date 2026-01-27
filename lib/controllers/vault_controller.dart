@@ -30,7 +30,17 @@ class VaultController extends GetxController {
 
   // ✅ Catégories de fichiers (FINI correctement)
   final Map<String, List<String>> fileCategories = {
-    'Documents': ['.pdf', '.doc', '.docx', '.txt', '.md'],
+    // 👇 ADD .xls, .xlsx, .csv HERE
+    'Documents': [
+      '.pdf',
+      '.doc',
+      '.docx',
+      '.txt',
+      '.md',
+      '.xls',
+      '.xlsx',
+      '.csv'
+    ],
     'Images': ['.jpg', '.jpeg', '.png', '.gif', '.svg', '.webp'],
     'Videos': ['.mp4', '.avi', '.mov', '.mkv', '.webm'],
     'Audio': ['.mp3', '.wav', '.flac', '.m4a', '.ogg'],
@@ -199,6 +209,7 @@ class VaultController extends GetxController {
         dekNonceB64: dekNonceB64,
         dekTagB64: dekTagB64,
       );
+      await syncWithServer(); // Or just pull, not push
 
       await loadAllData();
 
@@ -256,7 +267,12 @@ class VaultController extends GetxController {
         whereArgs: [currentUserId, 0],
         orderBy: 'updated_at DESC',
       );
+      print("🔍 Query returned ${rows.length} rows"); // ← ADD THIS
+      print("🔍 Raw rows: $rows"); // ← ADD THIS
 
+      files.value =
+          rows.map((row) => VaultItem.fromDb(row, VaultItemType.file)).toList();
+      print('📂 ${files.length} fichiers chargés');
       files.value =
           rows.map((row) => VaultItem.fromDb(row, VaultItemType.file)).toList();
       print('📂 ${files.length} fichiers chargés');
@@ -321,13 +337,22 @@ class VaultController extends GetxController {
   // ==========================================================
   // ADD ITEMS
   // ==========================================================
-  Future<bool> addFile({required String filename, required Uint8List data}) async {
-    if (_dek == null || currentUserId == null) return false;
+  // ==========================================================
+  // ADD ITEMS (FIXED)
+  // ==========================================================
+  Future<bool> addFile(
+      {required String filename, required Uint8List data}) async {
+    if (_dek == null || currentUserId == null) {
+      print("❌ addFile impossible: DEK ou UserId null");
+      return false;
+    }
 
     try {
+      print("🔐 Chiffrement du fichier ${filename}...");
       final encryptedData = CryptoService.encryptBytes(data, _dek!);
       final category = getFileCategory(filename);
 
+      // Création de l'objet
       final item = VaultItem(
         userId: currentUserId!,
         type: VaultItemType.file,
@@ -336,12 +361,26 @@ class VaultController extends GetxController {
         category: category,
         size: data.length,
         deviceId: deviceId,
+        // We will force the sync status in the Map below just to be safe
       );
 
-      await DBService.insert(DBService.tableFiles, item.toDb());
+      // ⚠️ CRITICAL FIX: Force sync_status = 1 (Meaning: "NEW - Send to Server")
+      final Map<String, dynamic> itemMap = item.toDb();
+      itemMap['sync_status'] = 1;
+      itemMap['version'] = 1;
+      itemMap['updated_at'] = DateTime.now().toIso8601String();
+
+      print("💾 Insertion en base de données...");
+      final int id = await DBService.insert(DBService.tableFiles, itemMap);
+      print("✅ Item inséré avec ID locale: $id");
+
+      // Reload local list to show it in UI immediately
       await loadFiles();
 
-      print('✅ Fichier ajouté: $filename ($category)');
+      // Trigger Sync immediately
+      print("🔄 Lancement du Sync immédiat...");
+      syncWithServer();
+
       return true;
     } catch (e) {
       print('❌ Erreur ajout fichier: $e');

@@ -13,7 +13,7 @@ import 'package:idb_shim/idb_browser.dart';
 class DBService {
   static sqflite.Database? _database;
   static idb.Database? _webDb;
-  
+
   static const String dbName = 'vault_secure.db';
   static const int dbVersion = 3;
 
@@ -59,19 +59,22 @@ class DBService {
       },
       onUpgrade: (db, oldVersion, newVersion) async {
         print('🔄 Mise à jour SQLite: v$oldVersion -> v$newVersion');
-        
+
         // Migration progressive
         if (oldVersion < 2) {
           await db.execute('ALTER TABLE $tableFiles ADD COLUMN server_id TEXT');
-          await db.execute('ALTER TABLE $tableFiles ADD COLUMN sync_status INTEGER DEFAULT 0');
-          await db.execute('ALTER TABLE $tableFiles ADD COLUMN deleted INTEGER DEFAULT 0');
+          await db.execute(
+              'ALTER TABLE $tableFiles ADD COLUMN sync_status INTEGER DEFAULT 0');
+          await db.execute(
+              'ALTER TABLE $tableFiles ADD COLUMN deleted INTEGER DEFAULT 0');
         }
-        
+
         if (oldVersion < 3) {
-          await db.execute('ALTER TABLE $tableFiles ADD COLUMN version INTEGER DEFAULT 1');
+          await db.execute(
+              'ALTER TABLE $tableFiles ADD COLUMN version INTEGER DEFAULT 1');
           await db.execute('ALTER TABLE $tableFiles ADD COLUMN device_id TEXT');
         }
-        
+
         print('✅ Migration terminée');
       },
     );
@@ -79,24 +82,17 @@ class DBService {
 
   static Future<void> _createSQLiteTables(sqflite.Database db) async {
     // Table FILES
+    // Inside db_service.dart -> _createSQLiteTables
     await db.execute('''
-      CREATE TABLE $tableFiles (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        server_id TEXT,
-        filename TEXT NOT NULL,
-        data TEXT NOT NULL,
-        category TEXT NOT NULL,
-        size INTEGER NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        sync_status INTEGER DEFAULT 0,
-        deleted INTEGER DEFAULT 0,
-        version INTEGER DEFAULT 1,
-        device_id TEXT
-      )
-    ''');
-
+  CREATE TABLE $tableFiles (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, // Local reference
+    server_id TEXT,                        // UUID from Django (Sync reference)
+    user_id TEXT NOT NULL,
+    filename TEXT,
+    data TEXT NOT NULL,
+    ...
+  )
+''');
     // Table CONTACTS
     await db.execute('''
       CREATE TABLE $tableContacts (
@@ -147,7 +143,8 @@ class DBService {
     // Index pour performance
     await db.execute('CREATE INDEX idx_files_user ON $tableFiles(user_id)');
     await db.execute('CREATE INDEX idx_files_sync ON $tableFiles(sync_status)');
-    await db.execute('CREATE INDEX idx_contacts_user ON $tableContacts(user_id)');
+    await db
+        .execute('CREATE INDEX idx_contacts_user ON $tableContacts(user_id)');
     await db.execute('CREATE INDEX idx_events_user ON $tableEvents(user_id)');
     await db.execute('CREATE INDEX idx_notes_user ON $tableNotes(user_id)');
   }
@@ -183,7 +180,7 @@ class DBService {
         keyPath: 'id',
         autoIncrement: true,
       );
-      
+
       // Index
       store.createIndex('user_id', 'user_id', unique: false);
       store.createIndex('sync_status', 'sync_status', unique: false);
@@ -272,7 +269,7 @@ class DBService {
 
     if (kIsWeb) {
       final db = await webDatabase;
-      
+
       if (where == 'id = ?' && whereArgs != null && whereArgs.isNotEmpty) {
         final id = whereArgs[0];
         final txn = db.transaction(table, idb.idbModeReadWrite);
@@ -282,7 +279,7 @@ class DBService {
         if (existing != null) {
           final updated = Map<String, dynamic>.from(existing as Map);
           updated.addAll(values);
-          await store.put(updated, id);
+          await store.put(updated);
         }
 
         await txn.completed;
@@ -344,7 +341,8 @@ class DBService {
   }
 
   /// Récupère les items à synchroniser
-  static Future<List<Map<String, dynamic>>> getPendingSync(String table, String userId) async {
+  static Future<List<Map<String, dynamic>>> getPendingSync(
+      String table, String userId) async {
     return await query(
       table,
       where: 'user_id = ? AND sync_status = ?',
@@ -375,7 +373,7 @@ class DBService {
       final userId = whereArgs[0];
       return results.where((r) => r['user_id'] == userId).toList();
     }
-    
+
     if (where.contains('sync_status = ?')) {
       final status = whereArgs.last;
       return results.where((r) => r['sync_status'] == status).toList();
@@ -390,14 +388,18 @@ class DBService {
   ) {
     if (orderBy.contains('updated_at DESC')) {
       results.sort((a, b) {
-        final dateA = DateTime.tryParse(a['updated_at'] ?? '') ?? DateTime(1970);
-        final dateB = DateTime.tryParse(b['updated_at'] ?? '') ?? DateTime(1970);
+        final dateA =
+            DateTime.tryParse(a['updated_at'] ?? '') ?? DateTime(1970);
+        final dateB =
+            DateTime.tryParse(b['updated_at'] ?? '') ?? DateTime(1970);
         return dateB.compareTo(dateA);
       });
     } else if (orderBy.contains('created_at DESC')) {
       results.sort((a, b) {
-        final dateA = DateTime.tryParse(a['created_at'] ?? '') ?? DateTime(1970);
-        final dateB = DateTime.tryParse(b['created_at'] ?? '') ?? DateTime(1970);
+        final dateA =
+            DateTime.tryParse(a['created_at'] ?? '') ?? DateTime(1970);
+        final dateB =
+            DateTime.tryParse(b['created_at'] ?? '') ?? DateTime(1970);
         return dateB.compareTo(dateA);
       });
     }

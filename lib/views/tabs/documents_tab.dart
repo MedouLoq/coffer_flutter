@@ -20,7 +20,7 @@ class _DocumentsTabState extends State<DocumentsTab>
 
   final VaultController controller = Get.find();
   final ImagePicker _picker = ImagePicker();
-  
+
   bool _isPinEnabled = false;
   bool _isUnlocked = false; // Session de lecture déverrouillée
 
@@ -68,10 +68,9 @@ class _DocumentsTabState extends State<DocumentsTab>
       // Convertir VaultItem en Map pour compatibilité
       final allFiles = controller.files;
       final documents = allFiles
-          .where((item) => controller.getFileCategory(item.filename ?? '') == 'Documents')
           .map((item) => {
                 'id': item.id,
-                'filename': item.filename,
+                'filename': item.filename ?? 'Unknown',
                 'size': item.size,
                 'category': item.category,
                 'created_at': item.createdAt.toIso8601String(),
@@ -196,12 +195,12 @@ class _DocumentsTabState extends State<DocumentsTab>
         itemCount: documents.length,
         itemBuilder: (context, index) {
           final doc = documents[index];
-          
+
           // Afficher le document masqué si verrouillé
           if (_isPinEnabled && !_isUnlocked) {
             return _buildLockedDocumentCard(doc);
           }
-          
+
           return _buildDocumentCard(doc);
         },
       ),
@@ -337,42 +336,45 @@ class _DocumentsTabState extends State<DocumentsTab>
             topRight: Radius.circular(20),
           ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'Ajouter un document',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: const Icon(Icons.camera_alt, color: Colors.blue),
-              title: const Text('Scanner un document'),
-              subtitle: const Text('Ajoute une image (va dans Images)'),
-              onTap: () {
-                Get.back();
-                _scanDocument();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.photo_library, color: Colors.green),
-              title: const Text('Depuis la galerie'),
-              subtitle: const Text('Ajoute une image (va dans Images)'),
-              onTap: () {
-                Get.back();
-                _pickFromGallery();
-              },
-            ),
-            ListTile(
-              leading: const Icon(Icons.folder, color: Colors.orange),
-              title: const Text('Parcourir les fichiers'),
-              subtitle: const Text('PDF, DOC, XLS, TXT...'),
-              onTap: () {
-                Get.back();
-                _pickFile();
-              },
-            ),
-          ],
+        // 👇 FIX: Added SingleChildScrollView to prevent "RenderFlex overflow"
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Ajouter un document',
+                style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+              ),
+              const SizedBox(height: 20),
+              ListTile(
+                leading: const Icon(Icons.camera_alt, color: Colors.blue),
+                title: const Text('Scanner un document'),
+                subtitle: const Text('Ajoute une image (va dans Images)'),
+                onTap: () {
+                  Get.back();
+                  _scanDocument();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library, color: Colors.green),
+                title: const Text('Depuis la galerie'),
+                subtitle: const Text('Ajoute une image (va dans Images)'),
+                onTap: () {
+                  Get.back();
+                  _pickFromGallery();
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.folder, color: Colors.orange),
+                title: const Text('Parcourir les fichiers'),
+                subtitle: const Text('PDF, DOC, XLS, TXT...'),
+                onTap: () {
+                  Get.back();
+                  _pickFile();
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -429,28 +431,62 @@ class _DocumentsTabState extends State<DocumentsTab>
     }
   }
 
+  // Inside DocumentsTab.dart
+
   Future<void> _pickFile() async {
     try {
+      print("📂 Ouverture du sélecteur de fichiers...");
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
         allowedExtensions: ['pdf', 'doc', 'docx', 'txt', 'xls', 'xlsx'],
+        withData: true,
       );
 
       if (result != null && result.files.isNotEmpty) {
+        print("📂 ${result.files.length} fichiers sélectionnés.");
+
         int count = 0;
         for (final f in result.files) {
+          print("📄 Traitement fichier: ${f.name} (Taille: ${f.size})");
+
           if (f.bytes != null) {
-            await controller.addFile(filename: f.name, data: f.bytes!);
-            count++;
+            print("💾 Tentative de sauvegarde...");
+
+            // 👇 FIX: Check the boolean result!
+            bool success =
+                await controller.addFile(filename: f.name, data: f.bytes!);
+
+            if (success) {
+              print("✅ Sauvegarde RÉUSSIE pour ${f.name}");
+              count++;
+            } else {
+              print(
+                  "⛔ ÉCHEC de sauvegarde pour ${f.name} (Voir logs précédents)");
+              Get.snackbar(
+                  'Erreur', 'Échec ajout ${f.name}. Vault verrouillé ?',
+                  backgroundColor: Colors.red, colorText: Colors.white);
+            }
+          } else {
+            print("❌ ERREUR CRITIQUE: f.bytes est NULL pour ${f.name}");
           }
         }
+
         if (count > 0) {
-          Get.snackbar('✅ Fichiers ajoutés', '$count fichier(s) ajouté(s)');
+          Get.snackbar('✅ Fichiers ajoutés', '$count fichier(s) ajouté(s)',
+              backgroundColor: Colors.green, colorText: Colors.white);
+
+          // Force UI update
+          await controller.loadFiles();
+          controller.syncWithServer();
         }
+      } else {
+        print("⚠️ Aucun fichier sélectionné.");
       }
     } catch (e) {
-      Get.snackbar('❌ Erreur', 'Impossible d\'ajouter: $e');
+      print('❌ ERROR DANS _pickFile: $e');
+      Get.snackbar('❌ Erreur', 'Impossible d\'ajouter: $e',
+          backgroundColor: Colors.red, colorText: Colors.white);
     }
   }
 
@@ -504,9 +540,23 @@ class _DocumentsTabState extends State<DocumentsTab>
     }
 
     try {
-      // Déchiffrer et afficher
+      final filename = (doc['filename'] ?? '').toString().toLowerCase();
+
+      // 👇 CHECK: If it is NOT a text file, do not open in Text widget!
+      if (filename.endsWith('.pdf') ||
+          filename.endsWith('.xls') ||
+          filename.endsWith('.xlsx') ||
+          filename.endsWith('.doc') ||
+          filename.endsWith('.docx')) {
+        Get.snackbar('Format non supporté',
+            'La visualisation directe des PDF/Office n\'est pas encore disponible.\nLe fichier est chiffré en sécurité.',
+            backgroundColor: Colors.blue, colorText: Colors.white);
+        return;
+      }
+
+      // ONLY decrypt and show if it is a simple text file
       final content = controller.decryptItemById(doc['id']);
-      
+
       Get.dialog(
         AlertDialog(
           title: Text((doc['filename'] ?? '').toString()),

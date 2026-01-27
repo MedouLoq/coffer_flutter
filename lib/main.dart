@@ -15,6 +15,11 @@ import 'views/main_app_view.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // 👇 ACTION 1: Put it HERE. This runs before the app starts.
+  // This ensures it is ALWAYS alive and NEVER killed.
+  Get.put(VaultController(), permanent: true);
+
   runApp(const VaultApp());
 }
 
@@ -51,24 +56,20 @@ class VaultApp extends StatelessWidget {
         GetPage(
           name: '/setup_password',
           page: () => const SetupPasswordView(),
-          binding: BindingsBuilder(() {
-            Get.put(VaultController());
-          }),
+          // 👇 ACTION 2: REMOVE VaultController binding here
         ),
         GetPage(
           name: '/unlock_vault',
-          // ✅ correction: enlever const
           page: () => UnlockVaultView(),
-          binding: BindingsBuilder(() {
-            Get.lazyPut(() => VaultController());
-          }),
+          // 👇 ACTION 3: REMOVE VaultController binding here too!
+          // We don't need it because we already created it in main()
         ),
         GetPage(
           name: '/main',
-          // ✅ correction: enlever const
           page: () => MainAppView(),
           binding: BindingsBuilder(() {
-            Get.lazyPut(() => VaultController());
+            // 👇 ACTION 4: REMOVE VaultController here too.
+            // ONLY keep MainController
             Get.lazyPut(() => MainController());
           }),
         ),

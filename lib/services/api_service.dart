@@ -8,11 +8,10 @@ class ApiService {
   // CONFIG
   // ============================================================
   /// Base API (tout ce qui est dans vault_api.urls est sous /api/)
-  static const String baseUrl = 'http://127.0.0.1:8000/api';
+  static const String baseUrl = 'http://62.171.154.32:8000/api';
 
   /// Root serveur (http://127.0.0.1:8000)
-  static final String _apiRoot =
-      baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
+  static final String _apiRoot = baseUrl.replaceFirst(RegExp(r'/api/?$'), '');
 
   // ============================================================
   // AUTH (SimpleJWT)
@@ -122,7 +121,7 @@ class ApiService {
     }
 
     throw ApiException(response.statusCode, errorMessage);
-    }
+  }
 
   // ============================================================
   // LIST PARSING
@@ -146,9 +145,7 @@ class ApiService {
       for (final k in keyCandidates) {
         final v = data[k];
         if (v is List) {
-          return v
-              .map((e) => Map<String, dynamic>.from(e as Map))
-              .toList();
+          return v.map((e) => Map<String, dynamic>.from(e as Map)).toList();
         }
       }
 
@@ -200,15 +197,15 @@ class ApiService {
 
   static Future<dynamic> post(String endpointOrUrl,
       {bool includeAuth = true, Map<String, dynamic>? body}) async {
-    final res = await _rawPost(endpointOrUrl,
-        includeAuth: includeAuth, body: body);
+    final res =
+        await _rawPost(endpointOrUrl, includeAuth: includeAuth, body: body);
     return _handleResponse(res);
   }
 
   static Future<dynamic> patch(String endpointOrUrl,
       {bool includeAuth = true, Map<String, dynamic>? body}) async {
-    final res = await _rawPatch(endpointOrUrl,
-        includeAuth: includeAuth, body: body);
+    final res =
+        await _rawPatch(endpointOrUrl, includeAuth: includeAuth, body: body);
     return _handleResponse(res);
   }
 
@@ -237,25 +234,25 @@ class ApiService {
   /// ✅ CORRIGÉ : SimpleJWT attend par défaut {username, password}
   /// (sauf si tu as modifié Django pour accepter email)
   static Future<Map<String, dynamic>> login({
-  required String username,  // ✅ Change email → username
-  required String password,
-}) async {
-  final data = await post(
-    authLogin,
-    includeAuth: false,
-    body: {'username': username, 'password': password},  // ✅ Corrigé
-  );
-
-  final map = Map<String, dynamic>.from(data as Map);
-
-  if (map['access'] != null) {
-    await SecureStorageService.saveTokens(
-      accessToken: map['access'],
-      refreshToken: map['refresh'],
+    required String username, // ✅ Change email → username
+    required String password,
+  }) async {
+    final data = await post(
+      authLogin,
+      includeAuth: false,
+      body: {'username': username, 'password': password}, // ✅ Corrigé
     );
+
+    final map = Map<String, dynamic>.from(data as Map);
+
+    if (map['access'] != null) {
+      await SecureStorageService.saveTokens(
+        accessToken: map['access'],
+        refreshToken: map['refresh'],
+      );
+    }
+    return map;
   }
-  return map;
-}
 
   static Future<String?> refreshToken() async {
     try {
@@ -470,12 +467,10 @@ class ApiService {
   // ============================================================
   static Future<bool> ping() async {
     try {
-      final response = await http
-          .get(
-            _uri('/api/health/'),
-            headers: const {'Content-Type': 'application/json'},
-          )
-          .timeout(const Duration(seconds: 5));
+      final response = await http.get(
+        _uri('/api/health/'),
+        headers: const {'Content-Type': 'application/json'},
+      ).timeout(const Duration(seconds: 5));
       return response.statusCode == 200;
     } catch (e) {
       // ignore: avoid_print

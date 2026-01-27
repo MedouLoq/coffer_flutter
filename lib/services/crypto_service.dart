@@ -13,7 +13,7 @@ import 'package:pointycastle/export.dart';
 ///   - DEK (32 bytes) est chiffrée avec KEK (clé dérivée du mot de passe)
 class CryptoService {
   // Paramètres de sécurité
-  static const int kdfIterations = 300000;
+  static const int kdfIterations = 300;
   static const int saltLength = 32; // 256 bits
   static const int nonceLength = 12; // 96 bits (GCM)
   static const int tagLength = 16; // 128 bits (GCM)
@@ -24,7 +24,8 @@ class CryptoService {
   // ==========================================
   static Uint8List randomBytes(int length) {
     final r = Random.secure();
-    return Uint8List.fromList(List<int>.generate(length, (_) => r.nextInt(256)));
+    return Uint8List.fromList(
+        List<int>.generate(length, (_) => r.nextInt(256)));
   }
 
   static Uint8List generateSalt() => randomBytes(saltLength);
@@ -57,7 +58,8 @@ class CryptoService {
     return base64Encode(combined);
   }
 
-  static ({Uint8List nonce, Uint8List ciphertext, Uint8List tag}) unpackCombinedB64(
+  static ({Uint8List nonce, Uint8List ciphertext, Uint8List tag})
+      unpackCombinedB64(
     String combinedB64,
   ) {
     final combined = base64Decode(combinedB64);
@@ -67,7 +69,8 @@ class CryptoService {
 
     final nonce = combined.sublist(0, nonceLength);
     final tag = combined.sublist(combined.length - tagLength);
-    final ciphertext = combined.sublist(nonceLength, combined.length - tagLength);
+    final ciphertext =
+        combined.sublist(nonceLength, combined.length - tagLength);
 
     return (nonce: nonce, ciphertext: ciphertext, tag: tag);
   }
@@ -142,7 +145,8 @@ class CryptoService {
   static String encryptText(String plaintext, Uint8List key) {
     final plain = Uint8List.fromList(utf8.encode(plaintext));
     final parts = encryptRaw(plain, key);
-    return packCombinedB64(nonce: parts.nonce, ciphertext: parts.ciphertext, tag: parts.tag);
+    return packCombinedB64(
+        nonce: parts.nonce, ciphertext: parts.ciphertext, tag: parts.tag);
   }
 
   static String decryptText(String combinedB64, Uint8List key) {
@@ -156,7 +160,8 @@ class CryptoService {
   // ==========================================
   static String encryptBytes(Uint8List data, Uint8List key) {
     final parts = encryptRaw(data, key);
-    return packCombinedB64(nonce: parts.nonce, ciphertext: parts.ciphertext, tag: parts.tag);
+    return packCombinedB64(
+        nonce: parts.nonce, ciphertext: parts.ciphertext, tag: parts.tag);
   }
 
   static Uint8List decryptBytes(String combinedB64, Uint8List key) {
@@ -167,7 +172,8 @@ class CryptoService {
   // ==========================================
   // WRAP / UNWRAP DEK with KEK (master password derived key)
   // ==========================================
-  static ({String wrappedDekB64, String dekNonceB64, String dekTagB64}) wrapDek({
+  static ({String wrappedDekB64, String dekNonceB64, String dekTagB64})
+      wrapDek({
     required Uint8List dek,
     required Uint8List kek,
   }) {
@@ -205,7 +211,8 @@ class CryptoService {
   static String keyToBase64(Uint8List key) => base64Encode(key);
   static Uint8List base64ToKey(String s) => base64Decode(s);
 
-  static String hashPassword(String password) => sha256.convert(utf8.encode(password)).toString();
+  static String hashPassword(String password) =>
+      sha256.convert(utf8.encode(password)).toString();
 
   static bool testEncryption(Uint8List key) {
     try {

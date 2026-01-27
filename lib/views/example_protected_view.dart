@@ -3,6 +3,8 @@ import 'package:get/get.dart';
 import '../controllers/vault_controller.dart';
 import '../services/pin_service.dart';
 import '../widgets/pin_verification_dialog.dart';
+import 'package:file_picker/file_picker.dart';
+import 'dart:typed_data'; // <-- Add this line
 
 /// Exemple d'onglet protégé par PIN
 /// Affiche les données seulement après vérification
@@ -16,7 +18,7 @@ class ProtectedDataTab extends StatefulWidget {
 class _ProtectedDataTabState extends State<ProtectedDataTab>
     with AutomaticKeepAliveClientMixin {
   final vaultController = Get.find<VaultController>();
-  
+
   bool _isVerified = false;
   bool _isPinEnabled = false;
 
@@ -32,7 +34,7 @@ class _ProtectedDataTabState extends State<ProtectedDataTab>
   Future<void> _checkPinStatus() async {
     final enabled = await PinService.isPinEnabled();
     setState(() => _isPinEnabled = enabled);
-    
+
     // Si le PIN est désactivé, afficher directement les données
     if (!enabled) {
       setState(() => _isVerified = true);
@@ -49,7 +51,7 @@ class _ProtectedDataTabState extends State<ProtectedDataTab>
 
     if (success) {
       setState(() => _isVerified = true);
-      
+
       Get.snackbar(
         '✅ Accès autorisé',
         'Vous pouvez maintenant consulter vos documents',
@@ -82,11 +84,11 @@ class _ProtectedDataTabState extends State<ProtectedDataTab>
 
   void _showDocumentContent(int index) {
     final file = vaultController.files[index];
-    
+
     try {
       // Déchiffrer le contenu
       final decrypted = vaultController.decryptItem(file);
-      
+
       showDialog(
         context: context,
         builder: (context) => AlertDialog(
@@ -127,10 +129,61 @@ class _ProtectedDataTabState extends State<ProtectedDataTab>
         // Afficher les documents
         return _buildDocumentsList();
       }),
+      // Import at the top of the file
       floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          // Ajouter un document (pas besoin de PIN pour ajouter)
-          // Mais besoin du vault déverrouillé
+        onPressed: () async {
+          print('🔵 Button Clicked');
+
+          // 1. Check Encryption Key
+          if (vaultController.encryptionKey == null) {
+            print('🔴 Error: Vault Locked');
+            Get.snackbar('Erreur', 'Le coffre est verrouillé.');
+            return;
+          }
+          print('🟢 Vault is Unlocked. Opening File Picker...');
+
+          try {
+            // 2. Pick File
+            FilePickerResult? result = await FilePicker.platform.pickFiles(
+              type: FileType.any,
+              withData: true, // IMPORTANT for Web
+            );
+
+            if (result == null) {
+              print('🟡 User cancelled file picker');
+              return;
+            }
+
+            print('🟢 File Picked: ${result.files.single.name}');
+
+            // 3. Get Data
+            Uint8List? fileBytes = result.files.single.bytes;
+
+            if (fileBytes == null) {
+              print('🔴 Error: File bytes are empty!');
+              return;
+            }
+            print('🟢 File Size: ${fileBytes.length} bytes');
+
+            // 4. Encrypt & Save
+            print('🔵 Starting Encryption & Save...');
+            bool success = await vaultController.addFile(
+                filename: result.files.single.name, data: fileBytes);
+
+            if (success) {
+              print('✅ SUCCESS: File saved to DB');
+              Get.snackbar('Succès', 'Document ajouté');
+
+              print('🔵 Triggering Sync...');
+              await vaultController.syncWithServer();
+            } else {
+              print('🔴 FAIL: Controller returned false');
+              Get.snackbar('Erreur', 'Échec de la sauvegarde');
+            }
+          } catch (e) {
+            print('🔴 EXCEPTION: $e');
+            Get.snackbar('Erreur', e.toString());
+          }
         },
         child: const Icon(Icons.add),
       ),
@@ -194,12 +247,12 @@ class _ProtectedDataTabState extends State<ProtectedDataTab>
 
           // Nombre de documents masqués
           Obx(() => Text(
-            '${vaultController.files.length} document(s) masqué(s)',
-            style: TextStyle(
-              color: Colors.grey[500],
-              fontSize: 12,
-            ),
-          )),
+                '${vaultController.files.length} document(s) masqué(s)',
+                style: TextStyle(
+                  color: Colors.grey[500],
+                  fontSize: 12,
+                ),
+              )),
         ],
       ),
     );
