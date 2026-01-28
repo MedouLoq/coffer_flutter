@@ -6,9 +6,10 @@ import 'package:uuid/uuid.dart';
 import '../services/crypto_service.dart';
 import '../services/db_service.dart';
 import '../services/secure_storage_service.dart';
-import '../services/sync_service.dart';
+import '../services/sync_service.dart' as sync_svc;
 import '../services/api_service.dart';
 import '../models/vault_item_model.dart';
+import 'dart:convert';
 
 class VaultController extends GetxController {
   final isUnlocked = false.obs;
@@ -392,7 +393,7 @@ class VaultController extends GetxController {
     if (_dek == null || currentUserId == null) return false;
 
     try {
-      final jsonData = contactData.toString();
+      final jsonData = jsonEncode(contactData); // Better than .toString()
       final encryptedData = CryptoService.encryptText(jsonData, _dek!);
 
       final item = VaultItem(
@@ -400,14 +401,16 @@ class VaultController extends GetxController {
         type: VaultItemType.contact,
         encryptedData: encryptedData,
         title: contactData['name'] as String?,
+        syncStatus: SyncStatus.pending, // Force status = 1
       );
 
       await DBService.insert(DBService.tableContacts, item.toDb());
       await loadContacts();
-      return true;
+      syncWithServer();
+      return true; // Success path
     } catch (e) {
       print('❌ Erreur ajout contact: $e');
-      return false;
+      return false; // 👈 CRITICAL: This fixes the lint error
     }
   }
 
@@ -418,7 +421,7 @@ class VaultController extends GetxController {
     if (_dek == null || currentUserId == null) return false;
 
     try {
-      final jsonData = eventData.toString();
+      final jsonData = jsonEncode(eventData);
       final encryptedData = CryptoService.encryptText(jsonData, _dek!);
 
       final item = VaultItem(
@@ -427,14 +430,16 @@ class VaultController extends GetxController {
         encryptedData: encryptedData,
         eventDate: eventDate.toIso8601String(),
         title: eventData['title'] as String?,
+        syncStatus: SyncStatus.pending,
       );
 
       await DBService.insert(DBService.tableEvents, item.toDb());
       await loadEvents();
+      syncWithServer();
       return true;
     } catch (e) {
       print('❌ Erreur ajout événement: $e');
-      return false;
+      return false; // 👈 CRITICAL: This fixes the lint error
     }
   }
 
@@ -449,14 +454,16 @@ class VaultController extends GetxController {
         type: VaultItemType.note,
         encryptedData: encryptedData,
         title: title,
+        syncStatus: SyncStatus.pending,
       );
 
       await DBService.insert(DBService.tableNotes, item.toDb());
       await loadNotes();
+      syncWithServer();
       return true;
     } catch (e) {
       print('❌ Erreur ajout note: $e');
-      return false;
+      return false; // 👈 CRITICAL: This fixes the lint error
     }
   }
 
@@ -538,7 +545,7 @@ class VaultController extends GetxController {
 
     try {
       isLoading.value = true;
-      final result = await SyncService.sync(userId: currentUserId!);
+      final result = await sync_svc.SyncService.sync(userId: currentUserId!);
 
       if (result.success) {
         await loadAllData();
@@ -566,7 +573,7 @@ class VaultController extends GetxController {
 
   void enableAutoSync() {
     if (currentUserId != null) {
-      SyncService.startAutoSync(
+      sync_svc.SyncService.startAutoSync(
         userId: currentUserId!,
         interval: const Duration(minutes: 5),
       );
@@ -574,7 +581,7 @@ class VaultController extends GetxController {
   }
 
   void disableAutoSync() {
-    SyncService.stopAutoSync();
+    sync_svc.SyncService.stopAutoSync();
   }
 
   // ==========================================================
@@ -623,7 +630,7 @@ class VaultController extends GetxController {
   @override
   void onClose() {
     disableAutoSync();
-    SyncService.dispose();
+    sync_svc.SyncService.dispose();
     super.onClose();
   }
 }

@@ -114,22 +114,32 @@ class VaultItem {
   /// Convertit en Map pour insertion DB
   // Inside vault_item_model.dart
   Map<String, dynamic> toDb() {
+    // 1. Common fields for ALL tables
     final map = {
-      // ONLY include 'id' if it actually exists (for updates)
-      // If it's null, we omit it so SQLite handles AUTOINCREMENT
       if (id != null) 'id': id,
-      'server_id': serverId, // Always include UUID for sync
+      'server_id': serverId,
       'user_id': userId,
       'data': encryptedData,
-      'filename': filename,
-      'category': category,
-      'size': size,
       'sync_status': syncStatus.value,
       'deleted': deleted ? 1 : 0,
       'version': version,
       'created_at': createdAt.toIso8601String(),
       'updated_at': updatedAt.toIso8601String(),
     };
+
+    // 2. Add type-specific metadata ONLY
+    if (type == VaultItemType.file) {
+      map['filename'] = filename;
+      map['category'] = category;
+      map['size'] = size;
+      map['device_id'] = deviceId;
+    } else if (type == VaultItemType.note) {
+      map['title'] = title;
+    } else if (type == VaultItemType.event) {
+      map['event_date'] = eventDate;
+    }
+    // Contacts table currently only uses the common 'data' field
+
     return map;
   }
   // ==========================================
@@ -157,24 +167,42 @@ class VaultItem {
   factory VaultItem.fromJson(Map<String, dynamic> json, String userId) {
     final typeStr = json['item_type'] as String;
     final type = VaultItemType.values.firstWhere(
-      (t) => t.name == typeStr,
+      (t) => t.name == typeStr || (t.name == 'file' && typeStr == 'document'),
       orElse: () => VaultItemType.file,
     );
+
+    // 1. Django stores metadata in 'meta_ciphertext_b64'
+    String? filename = json['filename']; // Try direct first
+    String? category = json['category'];
+    int? size = json['size'];
+
+    // 2. If null, try to extract from the metadata blob
+    final metaBlob = json['meta_ciphertext_b64'] as String?;
+    if (filename == null && metaBlob != null && metaBlob.isNotEmpty) {
+      try {
+        // For now, metadata is stored as a raw JSON string in that field
+        final decodedMeta = jsonDecode(metaBlob);
+        filename = decodedMeta['filename'];
+        category = decodedMeta['category'];
+      } catch (e) {
+        print("⚠️ Could not parse metadata blob: $e");
+      }
+    }
 
     return VaultItem(
       serverId: json['id'] as String?,
       userId: userId,
       type: type,
-      encryptedData: json['ciphertext_b64'] as String,
+      encryptedData: json['ciphertext_b64'] ?? '',
+      filename: filename ?? 'Unknown File', // Fallback so UI isn't empty
+      category: category ?? 'General',
+      size: size ?? 0,
       syncStatus: SyncStatus.synced,
-      deleted: json['deleted'] as bool? ?? false,
-      version: json['version'] as int? ?? 1,
-      deviceId: json['device_id'] as String?,
-      createdAt: DateTime.parse(json['created_at'] as String),
-      updatedAt: DateTime.parse(json['updated_at'] as String),
+      version: json['version'] ?? 1,
+      createdAt: DateTime.tryParse(json['created_at'] ?? '') ?? DateTime.now(),
+      updatedAt: DateTime.tryParse(json['updated_at'] ?? '') ?? DateTime.now(),
     );
   }
-
   // ==========================================
   // HELPERS
   // ==========================================

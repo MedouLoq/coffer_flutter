@@ -82,65 +82,72 @@ class DBService {
 
   static Future<void> _createSQLiteTables(sqflite.Database db) async {
     // Table FILES
-    // Inside db_service.dart -> _createSQLiteTables
     await db.execute('''
-  CREATE TABLE $tableFiles (
-    id INTEGER PRIMARY KEY AUTOINCREMENT, // Local reference
-    server_id TEXT,                        // UUID from Django (Sync reference)
-    user_id TEXT NOT NULL,
-    filename TEXT,
-    data TEXT NOT NULL,
-    ...
-  )
-''');
+    CREATE TABLE $tableFiles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      server_id TEXT,
+      filename TEXT ,
+      data TEXT NOT NULL,
+      category TEXT ,
+      size INTEGER ,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sync_status INTEGER DEFAULT 0,
+      deleted INTEGER DEFAULT 0,
+      version INTEGER DEFAULT 1,
+      device_id TEXT
+    )
+  ''');
+
     // Table CONTACTS
     await db.execute('''
-      CREATE TABLE $tableContacts (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        server_id TEXT,
-        data TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        sync_status INTEGER DEFAULT 0,
-        deleted INTEGER DEFAULT 0,
-        version INTEGER DEFAULT 1
-      )
-    ''');
+    CREATE TABLE $tableContacts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      server_id TEXT,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sync_status INTEGER DEFAULT 0,
+      deleted INTEGER DEFAULT 0,
+      version INTEGER DEFAULT 1
+    )
+  ''');
 
     // Table EVENTS
     await db.execute('''
-      CREATE TABLE $tableEvents (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        server_id TEXT,
-        event_date TEXT NOT NULL,
-        data TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        sync_status INTEGER DEFAULT 0,
-        deleted INTEGER DEFAULT 0,
-        version INTEGER DEFAULT 1
-      )
-    ''');
+    CREATE TABLE $tableEvents (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      server_id TEXT,
+      event_date TEXT NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sync_status INTEGER DEFAULT 0,
+      deleted INTEGER DEFAULT 0,
+      version INTEGER DEFAULT 1
+    )
+  ''');
 
     // Table NOTES
     await db.execute('''
-      CREATE TABLE $tableNotes (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id TEXT NOT NULL,
-        server_id TEXT,
-        title TEXT NOT NULL,
-        data TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        updated_at TEXT NOT NULL,
-        sync_status INTEGER DEFAULT 0,
-        deleted INTEGER DEFAULT 0,
-        version INTEGER DEFAULT 1
-      )
-    ''');
+    CREATE TABLE $tableNotes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id TEXT NOT NULL,
+      server_id TEXT,
+      title TEXT NOT NULL,
+      data TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      sync_status INTEGER DEFAULT 0,
+      deleted INTEGER DEFAULT 0,
+      version INTEGER DEFAULT 1
+    )
+  ''');
 
-    // Index pour performance
+    // Index creation (These are fine)
     await db.execute('CREATE INDEX idx_files_user ON $tableFiles(user_id)');
     await db.execute('CREATE INDEX idx_files_sync ON $tableFiles(sync_status)');
     await db
@@ -148,7 +155,6 @@ class DBService {
     await db.execute('CREATE INDEX idx_events_user ON $tableEvents(user_id)');
     await db.execute('CREATE INDEX idx_notes_user ON $tableNotes(user_id)');
   }
-
   // ==========================================
   // INDEXEDDB (Web)
   // ==========================================

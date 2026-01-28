@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/db_service.dart';
 import '../services/crypto_service.dart';
 import '../models/vault_item_model.dart';
+import 'dart:convert';
 
 /// Service de synchronisation offline-first
 /// - Push: envoie les modifications locales vers le serveur
@@ -275,34 +276,15 @@ class SyncService {
   static Future<Map<String, dynamic>> _createItemOnServer(
       VaultItem item) async {
     final parts = _splitEncryptedData(item.encryptedData);
-
-    // 1. Translate Type
-    String serverItemType = item.type.name;
-    if (serverItemType == 'file') {
-      serverItemType = 'document';
-    }
-
-    // 2. Handle Nonce (Must be 12 bytes = ~16 Base64 chars)
-    String nonce = parts['nonce']!;
-    if (nonce.isEmpty) {
-      // Valid 12-byte dummy nonce in Base64
-      nonce = "AAAAAAAAAAAAQUAA";
-    }
-
-    // 3. Handle Tag (Must be 16 bytes = ~24 Base64 chars)
-    String tag = parts['tag']!;
-    if (tag.isEmpty) {
-      // Valid 16-byte dummy tag in Base64
-      tag = "AAAAAAAAAAAAAAAAAAAAAA==";
-    }
-
-    print("🚀 Sending to Server: Type=$serverItemType");
+    final itemJson = item.toJson(); // 👈 Use the model's built-in JSON logic
 
     return await ApiService.createItem(
-      itemType: serverItemType,
+      itemType: item.type == VaultItemType.file ? 'document' : item.type.name,
       ciphertextB64: parts['cipher']!,
-      nonceB64: nonce,
-      tagB64: tag,
+      nonceB64: parts['nonce']!,
+      tagB64: parts['tag']!,
+      metaCiphertextB64: itemJson[
+          'meta_ciphertext_b64'], // 👈 Includes title/eventDate automatically
       size: item.size ?? 0,
       version: item.version,
       deviceId: item.deviceId,
@@ -310,11 +292,8 @@ class SyncService {
   }
 
   static Future<void> _updateItemOnServer(VaultItem item) async {
-    if (item.serverId == null) {
-      throw Exception('Pas de server_id pour update');
-    }
-
     final parts = _splitEncryptedData(item.encryptedData);
+    final itemJson = item.toJson();
 
     await ApiService.updateItem(
       itemId: item.serverId!,
@@ -322,6 +301,8 @@ class SyncService {
         'ciphertext_b64': parts['cipher'],
         'nonce_b64': parts['nonce'],
         'tag_b64': parts['tag'],
+        'meta_ciphertext_b64': itemJson['meta_ciphertext_b64'], // 👈 Fixed
+        'size': item.size ?? 0,
         'version': item.version + 1,
         'client_updated_at': item.updatedAt.toIso8601String(),
       },
@@ -333,16 +314,23 @@ class SyncService {
   // ==========================================
 
   static Map<String, String> _splitEncryptedData(String base64Data) {
-    // Format: base64(nonce(12) || ciphertext || tag(16))
-    final combined = base64Data; // Déjà en base64 depuis CryptoService
+    try {
+      // Use your unpack utility to get the REAL nonce and tag
+      final parts = CryptoService.unpackCombinedB64(base64Data);
 
-    // Pour simplifier, on retourne tel quel
-    // Le serveur stocke tout ensemble
-    return {
-      'nonce': 'AAAA', // Dummy base64 to satisfy "Required" check
-      'cipher': combined,
-      'tag': 'AAAA',
-    };
+      return {
+        'nonce': base64Encode(parts.nonce),
+        'cipher': base64Encode(parts.ciphertext),
+        'tag': base64Encode(parts.tag),
+      };
+    } catch (e) {
+      print('⚠️ Data split error: $e');
+      return {
+        'nonce': 'AAAA',
+        'cipher': base64Data,
+        'tag': 'AAAA',
+      };
+    }
   }
 
   static VaultItemType _getItemTypeFromTable(String table) {

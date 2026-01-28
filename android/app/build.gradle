@@ -7,14 +7,14 @@ plugins {
 android {
   namespace "com.example.vault_app"
 
-  compileSdkVersion flutter.compileSdkVersion
+  compileSdkVersion 36
   ndkVersion flutter.ndkVersion
 
   defaultConfig {
     applicationId "com.example.vault_app"
 
     // IMPORTANT: local_auth et secure_storage demandent souvent minSdk 23+
-    minSdkVersion 23
+    minSdkVersion 24
 
     targetSdkVersion flutter.targetSdkVersion
     versionCode flutter.versionCode
