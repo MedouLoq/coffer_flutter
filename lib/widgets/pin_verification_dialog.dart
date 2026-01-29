@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/pin_service.dart';
+import '../services/biometric_service.dart';
+import '../services/secure_storage_service.dart';
 
 /// Dialog pour vérifier le code PIN avant d'accéder aux données
 class PinVerificationDialog extends StatefulWidget {
@@ -42,7 +44,8 @@ class PinVerificationDialog extends StatefulWidget {
 class _PinVerificationDialogState extends State<PinVerificationDialog> {
   final _pinController = TextEditingController();
   final _focusNode = FocusNode();
-  
+  bool _canCheckBiometrics = false;
+  bool _isBiometricEnabled = false;
   bool _isVerifying = false;
   String? _errorMessage;
   int _remainingAttempts = 3;
@@ -54,7 +57,7 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
     super.initState();
     _checkLockStatus();
     _loadRemainingAttempts();
-    
+    _checkBiometrics();
     // Auto-focus après un petit délai
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) _focusNode.requestFocus();
@@ -66,6 +69,34 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
     _pinController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkBiometrics() async {
+    final canBio = await BiometricService.canAuthenticate();
+    final bioEnabled = await _isBiometricSetup();
+
+    setState(() {
+      _canCheckBiometrics = canBio;
+      _isBiometricEnabled = bioEnabled;
+    });
+
+    // Only auto-trigger if biometric is both available AND enabled by user
+    if (canBio && bioEnabled && !_isLocked) {
+      _authenticateWithBiometrics();
+    }
+  }
+
+  Future<bool> _isBiometricSetup() async {
+    final value = await SecureStorageService.read('biometric_enabled');
+    return value == 'true';
+  }
+
+  Future<void> _authenticateWithBiometrics() async {
+    final success = await BiometricService.authenticate();
+    if (success && mounted) {
+      widget.onSuccess?.call();
+      Navigator.of(context).pop(true);
+    }
   }
 
   Future<void> _checkLockStatus() async {
@@ -119,7 +150,8 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
         // PIN incorrect
         await _loadRemainingAttempts();
         setState(() {
-          _errorMessage = 'Code PIN incorrect ($_remainingAttempts tentatives restantes)';
+          _errorMessage =
+              'Code PIN incorrect ($_remainingAttempts tentatives restantes)';
         });
         _pinController.clear();
       }
@@ -215,7 +247,8 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.warning_amber, color: Colors.orange[900], size: 20),
+                    Icon(Icons.warning_amber,
+                        color: Colors.orange[900], size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -284,10 +317,17 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
       actions: [
         // Bouton Annuler
         TextButton(
-          onPressed: _isVerifying ? null : () => Navigator.of(context).pop(false),
+          onPressed:
+              _isVerifying ? null : () => Navigator.of(context).pop(false),
           child: const Text('Annuler'),
         ),
-
+        // Bouton Biométrie (only if available AND enabled)
+        if (_canCheckBiometrics && _isBiometricEnabled && !_isLocked)
+          IconButton(
+            icon: const Icon(Icons.fingerprint, color: Colors.blue, size: 28),
+            onPressed: _authenticateWithBiometrics,
+            tooltip: 'Utiliser la biométrie',
+          ),
         // Bouton Vérifier
         if (!_isLocked)
           ElevatedButton(
@@ -316,94 +356,5 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
     final minutes = duration.inMinutes;
     final seconds = duration.inSeconds % 60;
     return '${minutes}min ${seconds}s';
-  }
-}
-
-/// Widget clavier numérique personnalisé (optionnel)
-class PinKeyboard extends StatelessWidget {
-  final Function(String) onNumberPressed;
-  final VoidCallback onBackspace;
-
-  const PinKeyboard({
-    super.key,
-    required this.onNumberPressed,
-    required this.onBackspace,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // Rangée 1-2-3
-          _buildRow(['1', '2', '3']),
-          const SizedBox(height: 12),
-          // Rangée 4-5-6
-          _buildRow(['4', '5', '6']),
-          const SizedBox(height: 12),
-          // Rangée 7-8-9
-          _buildRow(['7', '8', '9']),
-          const SizedBox(height: 12),
-          // Rangée vide-0-backspace
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              const SizedBox(width: 70, height: 70), // Espace vide
-              _buildKey('0'),
-              _buildBackspaceKey(),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildRow(List<String> numbers) {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-      children: numbers.map((num) => _buildKey(num)).toList(),
-    );
-  }
-
-  Widget _buildKey(String number) {
-    return InkWell(
-      onTap: () => onNumberPressed(number),
-      borderRadius: BorderRadius.circular(35),
-      child: Container(
-        width: 70,
-        height: 70,
-        decoration: BoxDecoration(
-          color: Colors.grey[200],
-          shape: BoxShape.circle,
-        ),
-        child: Center(
-          child: Text(
-            number,
-            style: const TextStyle(
-              fontSize: 24,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildBackspaceKey() {
-    return InkWell(
-      onTap: onBackspace,
-      borderRadius: BorderRadius.circular(35),
-      child: Container(
-        width: 70,
-        height: 70,
-        decoration: BoxDecoration(
-          color: Colors.grey[300],
-          shape: BoxShape.circle,
-        ),
-        child: const Icon(Icons.backspace_outlined, size: 28),
-      ),
-    );
   }
 }

@@ -10,6 +10,8 @@ import '../services/sync_service.dart' as sync_svc;
 import '../services/api_service.dart';
 import '../models/vault_item_model.dart';
 import 'dart:convert';
+import 'dart:typed_data'; // Add at top
+import 'package:permission_handler/permission_handler.dart';
 
 class VaultController extends GetxController {
   final isUnlocked = false.obs;
@@ -54,6 +56,18 @@ class VaultController extends GetxController {
     super.onInit();
     deviceId = const Uuid().v4();
     _checkExistingVault();
+    _requestInitialPermissions();
+  }
+
+  Future<void> _requestInitialPermissions() async {
+    if (GetPlatform.isAndroid) {
+      // Request standard storage (for < Android 13) and camera
+      await [
+        Permission.storage,
+        Permission.camera,
+        Permission.manageExternalStorage, // Needed for the /Download folder
+      ].request();
+    }
   }
 
   Future<void> _checkExistingVault() async {
@@ -633,4 +647,33 @@ class VaultController extends GetxController {
     sync_svc.SyncService.dispose();
     super.onClose();
   }
+
+  Uint8List? decryptItemBytesById(dynamic itemId) {
+    try {
+      if (_dek == null) {
+        print('❌ Vault locked: DEK is null');
+        return null;
+      }
+
+      // 1. Find the item using a string-safe comparison
+      final item =
+          files.firstWhereOrNull((f) => f.id.toString() == itemId.toString());
+
+      if (item == null) {
+        print('⚠️ Item not found in memory: $itemId');
+        return null;
+      }
+
+      // 2. Use the correct key variable: _dek
+      // 3. Use the correct method name: decryptBytes
+      return CryptoService.decryptBytes(item.encryptedData, _dek!);
+    } catch (e) {
+      print('❌ Error decrypting bytes: $e');
+      return null;
+    }
+  }
 }
+
+// Add this method to your VaultController class
+
+/// Decrypt a file item and return the raw bytes (for images, PDFs, etc.)

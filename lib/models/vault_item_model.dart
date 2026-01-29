@@ -1,4 +1,5 @@
 import 'dart:convert';
+import '../services/crypto_service.dart';
 
 /// Types d'items dans le vault
 enum VaultItemType {
@@ -114,11 +115,11 @@ class VaultItem {
   /// Convertit en Map pour insertion DB
   // Inside vault_item_model.dart
   Map<String, dynamic> toDb() {
-    // 1. Common fields for ALL tables
+    // 1. Mandatory base fields for ALL tables
     final map = {
       if (id != null) 'id': id,
+      'user_id': userId, // 👈 This fixes the NOT NULL constraint error
       'server_id': serverId,
-      'user_id': userId,
       'data': encryptedData,
       'sync_status': syncStatus.value,
       'deleted': deleted ? 1 : 0,
@@ -127,21 +128,22 @@ class VaultItem {
       'updated_at': updatedAt.toIso8601String(),
     };
 
-    // 2. Add type-specific metadata ONLY
+    // 2. Add specific metadata based on the table schema
     if (type == VaultItemType.file) {
       map['filename'] = filename;
       map['category'] = category;
       map['size'] = size;
       map['device_id'] = deviceId;
-    } else if (type == VaultItemType.note) {
-      map['title'] = title;
     } else if (type == VaultItemType.event) {
-      map['event_date'] = eventDate;
+      map['event_date'] =
+          eventDate; // 👈 Correct column name for 'events' table
+    } else if (type == VaultItemType.note) {
+      map['title'] = title; // 👈 Correct column name for 'notes' table
     }
-    // Contacts table currently only uses the common 'data' field
 
     return map;
   }
+
   // ==========================================
   // CONVERSION API (SERVEUR)
   // ==========================================
@@ -174,6 +176,8 @@ class VaultItem {
     // 1. Django stores metadata in 'meta_ciphertext_b64'
     String? filename = json['filename']; // Try direct first
     String? category = json['category'];
+    String? title = json['title'];
+    String? eventDate = json['event_date'];
     int? size = json['size'];
 
     // 2. If null, try to extract from the metadata blob
@@ -184,8 +188,22 @@ class VaultItem {
         final decodedMeta = jsonDecode(metaBlob);
         filename = decodedMeta['filename'];
         category = decodedMeta['category'];
+        title ??= decodedMeta['title']; // 👈 Added
+        eventDate ??= decodedMeta['event_date']; // 👈 Added
       } catch (e) {
         print("⚠️ Could not parse metadata blob: $e");
+      }
+    }
+    String encryptedData = json['ciphertext_b64'] ?? '';
+    if (json['nonce_b64'] != null && json['tag_b64'] != null) {
+      try {
+        encryptedData = CryptoService.packCombinedB64(
+          nonce: base64Decode(json['nonce_b64']),
+          ciphertext: base64Decode(json['ciphertext_b64']),
+          tag: base64Decode(json['tag_b64']),
+        );
+      } catch (e) {
+        print("⚠️ Error packing pulled data: $e");
       }
     }
 
@@ -193,10 +211,12 @@ class VaultItem {
       serverId: json['id'] as String?,
       userId: userId,
       type: type,
-      encryptedData: json['ciphertext_b64'] ?? '',
-      filename: filename ?? 'Unknown File', // Fallback so UI isn't empty
+      encryptedData: encryptedData, // Now has the full data!
+      filename: filename ?? 'Unknown File',
       category: category ?? 'General',
       size: size ?? 0,
+      title: title, // 👈 Don't forget to pass these to the constructor
+      eventDate: eventDate,
       syncStatus: SyncStatus.synced,
       version: json['version'] ?? 1,
       createdAt: DateTime.tryParse(json['created_at'] ?? '') ?? DateTime.now(),

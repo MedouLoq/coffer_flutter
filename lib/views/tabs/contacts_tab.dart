@@ -33,7 +33,8 @@ class _ContactsTabState extends State<ContactsTab> {
     try {
       setState(() => _loading = true);
 
-      final rows = await DBService.query('contacts', orderBy: 'created_at DESC');
+      final rows =
+          await DBService.query('contacts', orderBy: 'created_at DESC');
 
       _contacts.clear();
 
@@ -62,15 +63,18 @@ class _ContactsTabState extends State<ContactsTab> {
 
             // normaliser champs attendus par l'UI
             contact['name'] ??= 'Sans nom';
-            contact['phone'] = (contact['phone']?.toString().trim().isEmpty ?? true)
-                ? null
-                : contact['phone'].toString().trim();
-            contact['email'] = (contact['email']?.toString().trim().isEmpty ?? true)
-                ? null
-                : contact['email'].toString().trim();
-            contact['notes'] = (contact['notes']?.toString().trim().isEmpty ?? true)
-                ? null
-                : contact['notes'].toString().trim();
+            contact['phone'] =
+                (contact['phone']?.toString().trim().isEmpty ?? true)
+                    ? null
+                    : contact['phone'].toString().trim();
+            contact['email'] =
+                (contact['email']?.toString().trim().isEmpty ?? true)
+                    ? null
+                    : contact['email'].toString().trim();
+            contact['notes'] =
+                (contact['notes']?.toString().trim().isEmpty ?? true)
+                    ? null
+                    : contact['notes'].toString().trim();
 
             _contacts.add(contact);
           }
@@ -98,13 +102,14 @@ class _ContactsTabState extends State<ContactsTab> {
     return Column(
       children: [
         _buildSearchBar(),
-
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : (vaultController.encryptionKey == null
                   ? _buildLockedState()
-                  : (_contacts.isEmpty ? _buildEmptyState() : _buildContactsList())),
+                  : (_contacts.isEmpty
+                      ? _buildEmptyState()
+                      : _buildContactsList())),
         ),
       ],
     );
@@ -369,27 +374,21 @@ class _ContactsTabState extends State<ContactsTab> {
                 'notes': notes.isEmpty ? null : notes,
               };
 
+              // Inside _addContact -> ElevatedButton.onPressed
               try {
-                final encrypted = await CryptoService.encryptText(
-                  jsonEncode(contact),
-                  vaultController.encryptionKey!,
-                );
+                // Use the controller method
+                final success = await vaultController.addContact(contact);
 
-                await DBService.insert('contacts', {
-                  'created_at': DateTime.now().toIso8601String(),
-                  'data': encrypted,
-                });
-
-                Get.back();
-
-                Get.snackbar(
-                  '✅ Contact ajouté',
-                  name,
-                  backgroundColor: Colors.green,
-                  colorText: Colors.white,
-                );
-
-                await _loadContactsFromDb();
+                if (success) {
+                  Get.back();
+                  Get.snackbar(
+                    '✅ Contact ajouté',
+                    name,
+                    backgroundColor: Colors.green,
+                    colorText: Colors.white,
+                  );
+                  await _loadContactsFromDb();
+                }
               } catch (e) {
                 Get.snackbar(
                   '❌ Erreur',
@@ -539,7 +538,8 @@ class _ContactsTabState extends State<ContactsTab> {
                   return;
                 }
 
-                await DBService.delete('contacts', where: 'id = ?', whereArgs: [id]);
+                await DBService.delete('contacts',
+                    where: 'id = ?', whereArgs: [id]);
 
                 Get.snackbar(
                   '✅ Supprimé',

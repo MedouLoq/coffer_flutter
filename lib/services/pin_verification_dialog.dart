@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'pin_service.dart';
+import 'biometric_service.dart';
 
 /// Dialog pour vérifier le code PIN avant d'accéder aux données
 class PinVerificationDialog extends StatefulWidget {
@@ -42,7 +43,7 @@ class PinVerificationDialog extends StatefulWidget {
 class _PinVerificationDialogState extends State<PinVerificationDialog> {
   final _pinController = TextEditingController();
   final _focusNode = FocusNode();
-  
+  bool _canCheckBiometrics = false;
   bool _isVerifying = false;
   String? _errorMessage;
   int _remainingAttempts = 3;
@@ -54,7 +55,7 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
     super.initState();
     _checkLockStatus();
     _loadRemainingAttempts();
-    
+    _checkBiometrics();
     // Auto-focus après un petit délai
     Future.delayed(const Duration(milliseconds: 300), () {
       if (mounted) _focusNode.requestFocus();
@@ -66,6 +67,24 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
     _pinController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkBiometrics() async {
+    final canBio = await BiometricService.canAuthenticate();
+    setState(() => _canCheckBiometrics = canBio);
+
+    // Optional: Auto-trigger biometrics when the dialog opens
+    if (canBio && !_isLocked) {
+      _authenticateWithBiometrics();
+    }
+  }
+
+  Future<void> _authenticateWithBiometrics() async {
+    final success = await BiometricService.authenticate();
+    if (success && mounted) {
+      widget.onSuccess?.call();
+      Navigator.of(context).pop(true);
+    }
   }
 
   Future<void> _checkLockStatus() async {
@@ -119,7 +138,8 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
         // PIN incorrect
         await _loadRemainingAttempts();
         setState(() {
-          _errorMessage = 'Code PIN incorrect ($_remainingAttempts tentatives restantes)';
+          _errorMessage =
+              'Code PIN incorrect ($_remainingAttempts tentatives restantes)';
         });
         _pinController.clear();
       }
@@ -215,7 +235,8 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.warning_amber, color: Colors.orange[900], size: 20),
+                    Icon(Icons.warning_amber,
+                        color: Colors.orange[900], size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -284,10 +305,16 @@ class _PinVerificationDialogState extends State<PinVerificationDialog> {
       actions: [
         // Bouton Annuler
         TextButton(
-          onPressed: _isVerifying ? null : () => Navigator.of(context).pop(false),
+          onPressed:
+              _isVerifying ? null : () => Navigator.of(context).pop(false),
           child: const Text('Annuler'),
         ),
-
+        if (_canCheckBiometrics && !_isLocked)
+          IconButton(
+            icon: const Icon(Icons.fingerprint, color: Colors.blue, size: 28),
+            onPressed: _authenticateWithBiometrics,
+            tooltip: 'Utiliser la biométrie',
+          ),
         // Bouton Vérifier
         if (!_isLocked)
           ElevatedButton(

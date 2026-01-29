@@ -2,8 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
+import 'dart:typed_data';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../../controllers/vault_controller.dart';
 import '../../services/pin_service.dart';
+import '../../services/biometric_service.dart';
+import '../../services/secure_storage_service.dart';
 import '../../widgets/pin_verification_dialog.dart';
 
 class DocumentsTab extends StatefulWidget {
@@ -21,84 +27,73 @@ class _DocumentsTabState extends State<DocumentsTab>
   final VaultController controller = Get.find();
   final ImagePicker _picker = ImagePicker();
 
-  bool _isPinEnabled = false;
+  bool _isSecurityEnabled = false; // Either PIN or Biometric
   bool _isUnlocked = false;
   String _searchQuery = '';
-  String?
-      _selectedFolder; // null = show folders, non-null = show files in folder
+  String? _selectedFolder;
 
   @override
   void initState() {
     super.initState();
-    _checkPinStatus();
+    _checkSecurityStatus();
   }
 
-  Future<void> _checkPinStatus() async {
-    final enabled = await PinService.isPinEnabled();
-    setState(() => _isPinEnabled = enabled);
+  /// Check if ANY security method is enabled (PIN or Biometric)
+  Future<void> _checkSecurityStatus() async {
+    final pinEnabled = await PinService.isPinEnabled();
+    final bioEnabled = await _isBiometricEnabled();
+
+    setState(() {
+      _isSecurityEnabled = pinEnabled || bioEnabled;
+    });
   }
 
-  Future<bool> _verifyPinIfNeeded() async {
+  Future<bool> _isBiometricEnabled() async {
+    final value = await SecureStorageService.read('biometric_enabled');
+    return value == 'true';
+  }
+
+  /// Verify security (PIN or Biometric) before accessing documents
+  Future<bool> _verifySecurityIfNeeded() async {
+    // Already unlocked
     if (_isUnlocked) return true;
-    if (!_isPinEnabled) {
+
+    // No security enabled
+    if (!_isSecurityEnabled) {
       setState(() => _isUnlocked = true);
       return true;
     }
 
-    final success = await PinVerificationDialog.show(
-      context,
-      title: 'Accès aux documents',
-      message: 'Entrez votre code PIN pour consulter vos documents',
-    );
-
-    if (success) {
-      setState(() => _isUnlocked = true);
-    }
-
-    return success;
-  }
-
-  // Group files by extension/type
-  Map<String, List<Map<String, dynamic>>> _groupFilesByType(
-      List<Map<String, dynamic>> files) {
-    final groups = <String, List<Map<String, dynamic>>>{
-      'PDF': [],
-      'Documents': [], // doc, docx
-      'Tableurs': [], // xls, xlsx
-      'Textes': [], // txt
-      'Autres': [],
-    };
-
-    for (final file in files) {
-      final filename = (file['filename'] ?? '').toString().toLowerCase();
-
-      if (filename.endsWith('.pdf')) {
-        groups['PDF']!.add(file);
-      } else if (filename.endsWith('.doc') || filename.endsWith('.docx')) {
-        groups['Documents']!.add(file);
-      } else if (filename.endsWith('.xls') || filename.endsWith('.xlsx')) {
-        groups['Tableurs']!.add(file);
-      } else if (filename.endsWith('.txt')) {
-        groups['Textes']!.add(file);
-      } else {
-        groups['Autres']!.add(file);
+    // Check if biometric is enabled first (faster)
+    final bioEnabled = await _isBiometricEnabled();
+    if (bioEnabled) {
+      final canUseBio = await BiometricService.canAuthenticate();
+      if (canUseBio) {
+        final success = await BiometricService.authenticate();
+        if (success) {
+          setState(() => _isUnlocked = true);
+          return true;
+        }
       }
     }
 
-    // Remove empty groups
-    groups.removeWhere((key, value) => value.isEmpty);
+    // Fallback to PIN or if biometric failed
+    final pinEnabled = await PinService.isPinEnabled();
+    if (pinEnabled) {
+      final success = await PinVerificationDialog.show(
+        context,
+        title: 'Accès aux documents',
+        message: 'Entrez votre code PIN pour consulter vos documents',
+      );
 
-    return groups;
-  }
+      if (success) {
+        setState(() => _isUnlocked = true);
+      }
 
-  // Filter files based on search query
-  List<Map<String, dynamic>> _filterFiles(List<Map<String, dynamic>> files) {
-    if (_searchQuery.isEmpty) return files;
+      return success;
+    }
 
-    return files.where((file) {
-      final filename = (file['filename'] ?? '').toString().toLowerCase();
-      return filename.contains(_searchQuery.toLowerCase());
-    }).toList();
+    return false;
   }
 
   @override
@@ -137,6 +132,51 @@ class _DocumentsTabState extends State<DocumentsTab>
         floatingActionButton: _buildFAB(),
       );
     });
+  }
+
+  Map<String, List<Map<String, dynamic>>> _groupFilesByType(
+      List<Map<String, dynamic>> files) {
+    final groups = <String, List<Map<String, dynamic>>>{
+      'PDF': [],
+      'Images': [], // jpg, png, jpeg
+      'Documents': [], // doc, docx
+      'Tableurs': [], // xls, xlsx
+      'Textes': [], // txt
+      'Autres': [],
+    };
+
+    for (final file in files) {
+      final filename = (file['filename'] ?? '').toString().toLowerCase();
+
+      if (filename.endsWith('.pdf')) {
+        groups['PDF']!.add(file);
+      } else if (filename.endsWith('.jpg') ||
+          filename.endsWith('.jpeg') ||
+          filename.endsWith('.png') ||
+          filename.endsWith('.gif') ||
+          filename.endsWith('.webp')) {
+        groups['Images']!.add(file);
+      } else if (filename.endsWith('.doc') || filename.endsWith('.docx')) {
+        groups['Documents']!.add(file);
+      } else if (filename.endsWith('.xls') || filename.endsWith('.xlsx')) {
+        groups['Tableurs']!.add(file);
+      } else if (filename.endsWith('.txt')) {
+        groups['Textes']!.add(file);
+      } else {
+        groups['Autres']!.add(file);
+      }
+    }
+
+    groups.removeWhere((key, value) => value.isEmpty);
+    return groups;
+  }
+
+  List<Map<String, dynamic>> _filterFiles(List<Map<String, dynamic>> files) {
+    if (_searchQuery.isEmpty) return files;
+    return files.where((file) {
+      final filename = (file['filename'] ?? '').toString().toLowerCase();
+      return filename.contains(_searchQuery.toLowerCase());
+    }).toList();
   }
 
   Widget _buildHeader() {
@@ -187,7 +227,7 @@ class _DocumentsTabState extends State<DocumentsTab>
                 ],
               ),
             ),
-            if (_isPinEnabled)
+            if (_isSecurityEnabled)
               Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
@@ -323,7 +363,7 @@ class _DocumentsTabState extends State<DocumentsTab>
                       color: Colors.grey.shade600,
                     ),
                   ),
-                  if (_isPinEnabled && !_isUnlocked)
+                  if (_isSecurityEnabled && !_isUnlocked)
                     Container(
                       margin: const EdgeInsets.only(top: 6),
                       padding: const EdgeInsets.symmetric(
@@ -365,6 +405,11 @@ class _DocumentsTabState extends State<DocumentsTab>
         return {
           'icon': Icons.picture_as_pdf,
           'gradient': [Colors.red.shade400, Colors.red.shade600],
+        };
+      case 'Images':
+        return {
+          'icon': Icons.image,
+          'gradient': [Colors.pink.shade400, Colors.pink.shade600],
         };
       case 'Documents':
         return {
@@ -417,7 +462,7 @@ class _DocumentsTabState extends State<DocumentsTab>
         itemBuilder: (context, index) {
           final file = files[index];
 
-          if (_isPinEnabled && !_isUnlocked) {
+          if (_isSecurityEnabled && !_isUnlocked) {
             return _buildLockedFileCard(file);
           }
 
@@ -433,7 +478,7 @@ class _DocumentsTabState extends State<DocumentsTab>
     final createdAt = file['created_at']?.toString();
 
     return Dismissible(
-      key: Key(file['id']),
+      key: Key(file['id'].toString()),
       direction: DismissDirection.endToStart,
       background: Container(
         alignment: Alignment.centerRight,
@@ -541,7 +586,7 @@ class _DocumentsTabState extends State<DocumentsTab>
         color: Colors.transparent,
         child: InkWell(
           onTap: () async {
-            if (await _verifyPinIfNeeded()) {
+            if (await _verifySecurityIfNeeded()) {
               _viewDocument(file);
             }
           },
@@ -693,6 +738,12 @@ class _DocumentsTabState extends State<DocumentsTab>
     if (lower.endsWith('.pdf')) {
       icon = Icons.picture_as_pdf;
       color = Colors.red.shade600;
+    } else if (lower.endsWith('.jpg') ||
+        lower.endsWith('.jpeg') ||
+        lower.endsWith('.png') ||
+        lower.endsWith('.gif')) {
+      icon = Icons.image;
+      color = Colors.pink.shade600;
     } else if (lower.endsWith('.doc') || lower.endsWith('.docx')) {
       icon = Icons.description;
       color = Colors.blue.shade600;
@@ -917,7 +968,6 @@ class _DocumentsTabState extends State<DocumentsTab>
 
   Future<void> _pickFile() async {
     try {
-      print("📂 Ouverture du sélecteur de fichiers...");
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         allowMultiple: true,
         type: FileType.custom,
@@ -926,34 +976,15 @@ class _DocumentsTabState extends State<DocumentsTab>
       );
 
       if (result != null && result.files.isNotEmpty) {
-        print("📂 ${result.files.length} fichiers sélectionnés.");
-
         int count = 0;
         for (final f in result.files) {
-          print("📄 Traitement fichier: ${f.name} (Taille: ${f.size})");
-
           if (f.bytes != null) {
-            print("💾 Tentative de sauvegarde...");
             bool success =
                 await controller.addFile(filename: f.name, data: f.bytes!);
 
             if (success) {
-              print("✅ Sauvegarde RÉUSSIE pour ${f.name}");
               count++;
-            } else {
-              print("⛔ ÉCHEC de sauvegarde pour ${f.name}");
-              Get.snackbar(
-                'Erreur',
-                'Échec ajout ${f.name}',
-                backgroundColor: Colors.red,
-                colorText: Colors.white,
-                snackPosition: SnackPosition.BOTTOM,
-                margin: const EdgeInsets.all(16),
-                borderRadius: 12,
-              );
             }
-          } else {
-            print("❌ f.bytes est NULL pour ${f.name}");
           }
         }
 
@@ -973,7 +1004,6 @@ class _DocumentsTabState extends State<DocumentsTab>
         }
       }
     } catch (e) {
-      print('❌ ERROR DANS _pickFile: $e');
       Get.snackbar(
         '❌ Erreur',
         'Impossible d\'ajouter: $e',
@@ -1028,6 +1058,16 @@ class _DocumentsTabState extends State<DocumentsTab>
                 onTap: () {
                   Navigator.pop(context);
                   _viewDocument(doc);
+                },
+              ),
+              const SizedBox(height: 12),
+              _buildActionTile(
+                icon: Icons.download,
+                title: 'Télécharger',
+                color: Colors.green,
+                onTap: () {
+                  Navigator.pop(context);
+                  _downloadDocument(doc);
                 },
               ),
               const SizedBox(height: 12),
@@ -1121,85 +1161,318 @@ class _DocumentsTabState extends State<DocumentsTab>
   }
 
   Future<void> _viewDocument(Map<String, dynamic> doc) async {
-    if (!await _verifyPinIfNeeded()) return;
+    // Verify security before opening
+    if (!await _verifySecurityIfNeeded()) {
+      return;
+    }
 
     try {
       final filename = (doc['filename'] ?? '').toString().toLowerCase();
 
-      if (filename.endsWith('.pdf') ||
-          filename.endsWith('.xls') ||
-          filename.endsWith('.xlsx') ||
-          filename.endsWith('.doc') ||
-          filename.endsWith('.docx')) {
+      // Decrypt the file
+      final decryptedData = controller.decryptItemBytesById(doc['id']);
+
+      if (decryptedData == null) {
+        throw Exception('Impossible de déchiffrer le fichier');
+      }
+
+      // Handle different file types
+      if (filename.endsWith('.jpg') ||
+          filename.endsWith('.jpeg') ||
+          filename.endsWith('.png') ||
+          filename.endsWith('.gif') ||
+          filename.endsWith('.webp')) {
+        _viewImage(decryptedData, filename);
+      } else if (filename.endsWith('.pdf')) {
+        _viewPDF(decryptedData, filename, doc['id']);
+      } else if (filename.endsWith('.txt')) {
+        _viewText(decryptedData, filename);
+      } else {
         Get.snackbar(
           'Format non supporté',
-          'La visualisation PDF/Office n\'est pas encore disponible',
+          'Téléchargez le fichier pour l\'ouvrir avec une application externe',
           backgroundColor: Colors.blue,
           colorText: Colors.white,
           snackPosition: SnackPosition.BOTTOM,
           margin: const EdgeInsets.all(16),
           borderRadius: 12,
-          duration: const Duration(seconds: 3),
+          duration: const Duration(seconds: 4),
         );
-        return;
       }
-
-      final content = controller.decryptItemById(doc['id']);
-
-      showDialog(
-        context: context,
-        builder: (context) => Dialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          child: Container(
-            padding: const EdgeInsets.all(24),
-            constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        (doc['filename'] ?? '').toString(),
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close),
-                      onPressed: () => Navigator.pop(context),
-                    ),
-                  ],
-                ),
-                const Divider(),
-                const SizedBox(height: 16),
-                Expanded(
-                  child: SingleChildScrollView(
-                    child: SelectableText(
-                      content,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      );
     } catch (e) {
       Get.snackbar(
         'Erreur',
-        'Impossible de déchiffrer: $e',
+        'Impossible de visualiser: $e',
         backgroundColor: Colors.red,
         colorText: Colors.white,
         snackPosition: SnackPosition.BOTTOM,
         margin: const EdgeInsets.all(16),
         borderRadius: 12,
+      );
+    }
+  }
+
+  void _viewImage(Uint8List imageData, String filename) {
+    Get.dialog(
+      Dialog(
+        backgroundColor: Colors.transparent,
+        insetPadding: const EdgeInsets.all(16),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      filename,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+            ),
+            Flexible(
+              child: Container(
+                decoration: const BoxDecoration(
+                  color: Colors.black,
+                ),
+                child: InteractiveViewer(
+                  minScale: 0.5,
+                  maxScale: 4.0,
+                  child: Center(
+                    child: Image.memory(
+                      imageData,
+                      fit: BoxFit.contain,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.only(
+                  bottomLeft: Radius.circular(20),
+                  bottomRight: Radius.circular(20),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  TextButton.icon(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close),
+                    label: const Text('Fermer'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  void _viewPDF(Uint8List pdfData, String filename, dynamic originalId) {
+    // For PDF viewing, we'll show a message since we need pdf_render package
+    Get.dialog(
+      AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Row(
+          children: [
+            const Icon(Icons.picture_as_pdf, color: Colors.red),
+            const SizedBox(width: 12),
+            const Expanded(child: Text('Visualisation PDF')),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'La visualisation PDF sera disponible dans la prochaine mise à jour.',
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'En attendant, vous pouvez télécharger le fichier pour l\'ouvrir.',
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Fermer'),
+          ),
+          ElevatedButton.icon(
+            onPressed: () {
+              Navigator.pop(context);
+              _downloadDocument({'filename': filename, 'id': originalId});
+            },
+            icon: const Icon(Icons.download),
+            label: const Text('Télécharger'),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.blue,
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _viewText(Uint8List textData, String filename) {
+    final text = String.fromCharCodes(textData);
+
+    showDialog(
+      context: context,
+      builder: (context) => Dialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        child: Container(
+          padding: const EdgeInsets.all(24),
+          constraints: const BoxConstraints(maxWidth: 500, maxHeight: 600),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      filename,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () => Navigator.pop(context),
+                  ),
+                ],
+              ),
+              const Divider(),
+              const SizedBox(height: 16),
+              Expanded(
+                child: SingleChildScrollView(
+                  child: SelectableText(
+                    text,
+                    style: const TextStyle(fontSize: 14),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _downloadDocument(Map<String, dynamic> doc) async {
+    // 1. Show immediate progress feedback
+    Get.rawSnackbar(
+      title: "Téléchargement",
+      message: "Préparation de ${doc['filename']}...",
+      backgroundColor: Colors.blue,
+      showProgressIndicator: true,
+      isDismissible: false,
+      duration: const Duration(seconds: 2),
+    );
+
+    try {
+      if (Platform.isAndroid) {
+        // 2. Request correct permissions for Android 13+
+        // This is needed to write to the public /Download folder
+        PermissionStatus status =
+            await Permission.manageExternalStorage.request();
+
+        if (status.isDenied) {
+          status = await Permission.storage.request();
+        }
+
+        if (!status.isGranted) {
+          Get.closeAllSnackbars();
+          Get.snackbar(
+            'Permission refusée',
+            'Accès au stockage nécessaire pour télécharger',
+            backgroundColor: Colors.orange,
+            colorText: Colors.white,
+          );
+          return;
+        }
+      }
+
+      // 3. Decrypt the file bytes
+      final decryptedData = controller.decryptItemBytesById(doc['id']);
+      if (decryptedData == null) {
+        throw Exception('Impossible de déchiffrer le fichier');
+      }
+
+      // 4. Determine path and save file
+      Directory? directory;
+      if (Platform.isAndroid) {
+        directory = Directory('/storage/emulated/0/Download');
+        // Fallback to internal storage if path is unreachable
+        if (!await directory.exists()) {
+          directory = await getExternalStorageDirectory();
+        }
+      } else {
+        directory = await getApplicationDocumentsDirectory();
+      }
+
+      if (directory == null) throw Exception('Dossier introuvable');
+
+      final filename = (doc['filename'] ?? 'document_vault').toString();
+      final file = File('${directory.path}/$filename');
+
+      // 5. Write the bytes to the disk
+      await file.writeAsBytes(decryptedData);
+
+      // 6. Success Feedback
+      Get.closeAllSnackbars();
+      Get.snackbar(
+        '✅ Téléchargé',
+        'Sauvegardé dans : ${file.path}',
+        backgroundColor: Colors.green,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
+        duration: const Duration(seconds: 5),
+        mainButton: TextButton(
+          onPressed: () => Get.back(),
+          child: const Text("OK", style: TextStyle(color: Colors.white)),
+        ),
+      );
+    } catch (e) {
+      Get.closeAllSnackbars();
+      Get.snackbar(
+        '❌ Erreur',
+        'Impossible de télécharger : $e',
+        backgroundColor: Colors.red,
+        colorText: Colors.white,
+        snackPosition: SnackPosition.BOTTOM,
       );
     }
   }

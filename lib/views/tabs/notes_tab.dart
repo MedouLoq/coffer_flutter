@@ -87,7 +87,6 @@ class _NotesTabState extends State<NotesTab> {
     return Column(
       children: [
         _buildSearchBar(),
-
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
@@ -246,13 +245,16 @@ class _NotesTabState extends State<NotesTab> {
               SizedBox(height: 8),
               Row(
                 children: [
-                  Icon(Icons.access_time, size: 12, color: Colors.grey.shade700),
+                  Icon(Icons.access_time,
+                      size: 12, color: Colors.grey.shade700),
                   SizedBox(width: 4),
                   Text(
-                    (note['date'] ?? DateTime.now().toString().split(' ')[0]).toString(),
+                    (note['date'] ?? DateTime.now().toString().split(' ')[0])
+                        .toString(),
                     style: TextStyle(fontSize: 11, color: Colors.grey.shade700),
                   ),
-                  if (note['category'] != null && note['category'].toString().isNotEmpty) ...[
+                  if (note['category'] != null &&
+                      note['category'].toString().isNotEmpty) ...[
                     SizedBox(width: 16),
                     Container(
                       padding: EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -262,7 +264,8 @@ class _NotesTabState extends State<NotesTab> {
                       ),
                       child: Text(
                         note['category'].toString(),
-                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.w600),
                       ),
                     ),
                   ],
@@ -350,27 +353,24 @@ class _NotesTabState extends State<NotesTab> {
                 'date': DateTime.now().toString().split(' ')[0],
               };
 
+              // Inside _createNote -> ElevatedButton.onPressed
               try {
-                final encrypted = await CryptoService.encryptText(
-                  jsonEncode(note),
-                  vaultController.encryptionKey!,
+                // Use the controller method
+                final success = await vaultController.addNote(
+                  title: titleController.text.trim(),
+                  content: contentController.text.trim(),
                 );
 
-                await DBService.insert('notes', {
-                  'created_at': DateTime.now().toIso8601String(),
-                  'data': encrypted,
-                });
-
-                Get.back();
-
-                Get.snackbar(
-                  '✅ Note créée',
-                  note['title'],
-                  backgroundColor: Colors.green,
-                  colorText: Colors.white,
-                );
-
-                await _loadNotesFromDb();
+                if (success) {
+                  Get.back();
+                  Get.snackbar(
+                    '✅ Note créée',
+                    titleController.text.trim(),
+                    backgroundColor: Colors.green,
+                    colorText: Colors.white,
+                  );
+                  await _loadNotesFromDb();
+                }
               } catch (e) {
                 Get.snackbar(
                   '❌ Erreur',
@@ -398,9 +398,13 @@ class _NotesTabState extends State<NotesTab> {
       return;
     }
 
-    final titleController = TextEditingController(text: (note['title'] ?? '').toString());
-    final contentController = TextEditingController(text: (note['content'] ?? '').toString());
-    String? selectedCategory = (note['category'] ?? '').toString().isEmpty ? null : note['category'].toString();
+    final titleController =
+        TextEditingController(text: (note['title'] ?? '').toString());
+    final contentController =
+        TextEditingController(text: (note['content'] ?? '').toString());
+    String? selectedCategory = (note['category'] ?? '').toString().isEmpty
+        ? null
+        : note['category'].toString();
 
     Get.dialog(
       AlertDialog(
@@ -626,7 +630,8 @@ class _NotesTabState extends State<NotesTab> {
             onPressed: () async {
               final id = _notes[index]['id'];
               if (id is int) {
-                await DBService.delete('notes', where: 'id = ?', whereArgs: [id]);
+                await DBService.delete('notes',
+                    where: 'id = ?', whereArgs: [id]);
               }
 
               setState(() {

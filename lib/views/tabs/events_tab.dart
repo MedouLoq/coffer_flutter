@@ -412,44 +412,37 @@ class _EventsTabState extends State<EventsTab>
             onPressed: () async {
               if (titleController.text.trim().isEmpty) return;
 
-              // ✅ IMPORTANT: stocker event_date en date-only (pas d’heure)
               final day = DateTime(
                 _selectedDay!.year,
                 _selectedDay!.month,
                 _selectedDay!.day,
               );
 
-              final event = <String, dynamic>{
+              // Prepare the event data object
+              final eventData = {
                 'title': titleController.text.trim(),
                 'description': descController.text.trim(),
                 'time': selectedTime.format(context),
-                'date': day.toIso8601String(),
               };
 
               try {
-                final encrypted = await CryptoService.encryptText(
-                  jsonEncode(event),
-                  vaultController.encryptionKey!,
+                // 👇 USE THE CONTROLLER METHOD INSTEAD OF DBService.insert
+                // This automatically handles user_id and sync_status
+                final success = await vaultController.addEvent(
+                  eventDate: day,
+                  eventData: eventData,
                 );
 
-                await DBService.insert('events', {
-                  // ⚠️ si ta colonne est DATE (pas DATETIME), garde uniquement YYYY-MM-DD
-                  'event_date':
-                      DateTime(day.year, day.month, day.day).toIso8601String(),
-                  'created_at': DateTime.now().toIso8601String(),
-                  'data': encrypted,
-                });
-
-                Get.back();
-
-                Get.snackbar(
-                  '✅ Événement ajouté',
-                  (event['title'] ?? '').toString(),
-                  backgroundColor: Colors.green,
-                  colorText: Colors.white,
-                );
-
-                await _loadEventsFromDb();
+                if (success) {
+                  Get.back();
+                  Get.snackbar(
+                    '✅ Événement ajouté',
+                    titleController.text.trim(),
+                    backgroundColor: Colors.green,
+                    colorText: Colors.white,
+                  );
+                  await _loadEventsFromDb();
+                }
               } catch (e) {
                 Get.snackbar(
                   '❌ Erreur',
